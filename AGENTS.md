@@ -43,7 +43,7 @@ A Next.js 16 app with three roles (`IT`, `manager`, `user`), an in-memory store,
 2. **The client is never trusted.** Show/hide flags in the UI (`allowed` in `user-row.tsx`, the links in `header.tsx`) are hints. Hiding a button is never the protection; the service must reject the request on its own.
 3. **The current user comes from `getCurrentUser()` / `requireUser()`**, which re-reads the store on every request. Never take an id or role from the body, a query param, or a value cached earlier. That re-read is what makes deactivation apply on the next request (rule 5); do not replace sessions with a JWT or cache the user.
 4. **The clients list is paginated on the server.** Use `listClients(user, PageQuerySchema.parse(...))`; `limit` is capped at 100. Never add a `getAllClients()`, never send `db.clients` to a client component, and never paginate in the browser.
-5. **Role strings appear only in `src/lib/access.ts` and `src/lib/seed.ts`.** Elsewhere use `ROLES`, `Role`, `LANDING_PAGE` and permissions. `grep -rnE "'(IT|manager|user)'" src` must match nothing outside those two files.
+5. **Role strings appear only in `src/lib/access.ts` and `src/lib/seed.ts`.** Elsewhere use `ROLES`, `Role`, `LANDING_PAGE` and permissions. `grep -rnE "'(IT|manager|user)'" src` must match nothing outside those two files. `ROLE_PERMISSIONS` and `LANDING_PAGE` are typed `Record<Role, …>`, so a role added to `ROLES` without a row in both is a compile error; schemas, dropdowns, guards and services all read `ROLES` and `can()` and need no change. The one rule that names a role is the "edits only own reports" `if` in `can()`. A new patch field needs a row in `FIELD_PERMISSION` in `users.service.ts` (also a compile error if missing).
 6. **Validate with zod 4 strict schemas** (`z.strictObject`, `z.email()`), so an unknown field such as `isAdmin` is a 400, not silently ignored.
 
 ## Counter-intuitive things
@@ -56,14 +56,6 @@ A Next.js 16 app with three roles (`IT`, `manager`, `user`), an in-memory store,
 - **`redirect()`, `forbidden()` and `notFound()` throw.** Never call them inside `try/catch`; catch the service error first, then call them outside (see `content/client/[id]/page.tsx`).
 - **The proxy is not security.** `src/proxy.ts` only checks that a `sid` cookie exists. A forged or stale cookie passes it, and the page guard rejects it.
 - **The file is `proxy.ts`, not `middleware.ts`**, and `params`/`searchParams` are promises (`await params`).
-
-## Adding a fourth role
-
-1. Add it to `ROLES` in `src/lib/access.ts`. The compiler then forces a row in `ROLE_PERMISSIONS` and in `LANDING_PAGE`; fill both from the existing permissions. Add a new `Permission` only if no existing one fits, and give it a row in `FIELD_PERMISSION` if it guards a patch field.
-2. If the role should edit only its own reports, extend the manager `if` in `can()`. It is the one place that names a role inside the rules.
-3. Add a seed user in `src/lib/seed.ts` and a row in the README's seed table.
-4. Change nothing else. Schemas, dropdowns, guards and services read `ROLES` and `can()`. If you find yourself editing a page or service to mention the new role, stop: express it as a permission instead.
-5. Run typecheck, lint and build, then the README curl checks while logged in as the new role.
 
 ## Conventions
 
