@@ -35,3 +35,14 @@ The store also generates 1,200 clients (`c-0001` to `c-1200`) with a seeded PRNG
 The app stores an opaque session id in an httpOnly cookie (`sid`) and looks it up in a server-side `Map` on every request. A JWT cannot be revoked before it expires, so deactivating a logged-in user would not take effect on their next request. With a server-side lookup it does (rule 5).
 
 Trade-off: the server is stateful, so it needs one long-lived Node process. Serverless deployments won't work.
+
+## Assumptions
+
+- Email is the login: trimmed, lowercased and unique (409 `email_taken`).
+- There is no "change managerId" column in the table, so IT sets it on create, and editing it is out of scope.
+- A deactivated manager cannot act at all (401), but IT can still edit their reports.
+- A manager may edit a deactivated report (the rules don't forbid it).
+- A manager acting on a non-report or an unknown id gets 403 in both cases; IT gets 404 for unknown ids.
+- Demoting a manager who has reports leaves their reports' `managerId` dangling (documented, not auto-cleaned).
+- IT lands on `/manage-users`; IT opening `/content` gets 403, not a redirect.
+- Rule 4 (at least one active IT) is unreachable through normal flows, because rules 1, 3 and 5 already protect the acting IT. `updateUser` still enforces it as a last line of defence.
