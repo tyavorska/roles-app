@@ -59,14 +59,14 @@ export function updateUser(
   }
   if (patch.email && emailTaken(patch.email, target.id))
     throw new HttpError(409, 'email_taken')
-  const demotes = patch.role !== undefined && patch.role !== target.role
-  if (user.id === target.id && (demotes || patch.status === 'deactivated'))
-    throw new HttpError(403, 'self_change')
   const next = { ...target, ...patch }
   const activeAdmins = db.users
     .map((u) => (u.id === target.id ? next : u))
     .filter((u) => can(u, 'user:change-role')).length
   if (activeAdmins === 0) throw new HttpError(409, 'last_active_it')
+  const demotes = patch.role !== undefined && patch.role !== target.role
+  if (user.id === target.id && (demotes || patch.status === 'deactivated'))
+    throw new HttpError(403, 'self_change')
   Object.assign(target, patch)
   return toPublicUser(target)
 }

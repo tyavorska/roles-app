@@ -15,18 +15,18 @@ Open http://localhost:3000.
 
 All seed accounts use the password `password`.
 
-| Account  | Email                  | Role    | State                   | Why                                       |
-| -------- | ---------------------- | ------- | ----------------------- | ----------------------------------------- |
-| it1      | it1@example.com        | IT      | active                  |                                           |
-| it2      | it2@example.com        | IT      | active                  | rule 4 needs two                          |
-| manager1 | manager1@example.com   | manager | active, 3 reports       | main manager                              |
-| manager2 | manager2@example.com   | manager | active, no reports      | empty-state case                          |
-| manager3 | manager3@example.com   | manager | deactivated, 1 report   | for "user whose manager is deactivated"   |
-| user1    | user1@example.com      | user    | active, manager1        |                                           |
-| user2    | user2@example.com      | user    | active, manager1        |                                           |
-| user3    | user3@example.com      | user    | deactivated, manager1   | deactivated case                          |
-| user4    | user4@example.com      | user    | active, manager3        | manager is deactivated                    |
-| user5    | user5@example.com      | user    | active, no manager      | unassigned: manager must not edit         |
+| Account  | Email                | Role    | State                 | Why                                     |
+| -------- | -------------------- | ------- | --------------------- | --------------------------------------- |
+| it1      | it1@example.com      | IT      | active                |                                         |
+| it2      | it2@example.com      | IT      | active                | rule 4 needs two                        |
+| manager1 | manager1@example.com | manager | active, 3 reports     | main manager                            |
+| manager2 | manager2@example.com | manager | active, no reports    | empty-state case                        |
+| manager3 | manager3@example.com | manager | deactivated, 1 report | for "user whose manager is deactivated" |
+| user1    | user1@example.com    | user    | active, manager1      |                                         |
+| user2    | user2@example.com    | user    | active, manager1      |                                         |
+| user3    | user3@example.com    | user    | deactivated, manager1 | deactivated case                        |
+| user4    | user4@example.com    | user    | active, manager3      | manager is deactivated                  |
+| user5    | user5@example.com    | user    | active, no manager    | unassigned: manager must not edit       |
 
 The store also generates 1,200 clients (`c-0001` to `c-1200`) with a seeded PRNG, so the data is the same on every restart.
 
@@ -45,7 +45,7 @@ Trade-off: the server is stateful, so it needs one long-lived Node process. Serv
 - A manager acting on a non-report or an unknown id gets 403 in both cases; IT gets 404 for unknown ids.
 - Demoting a manager who has reports leaves their reports' `managerId` dangling (documented, not auto-cleaned).
 - IT lands on `/manage-users`; IT opening `/content` gets 403, not a redirect.
-- Rule 4 (at least one active IT) is unreachable through normal flows, because rules 1, 3 and 5 already protect the acting IT. `updateUser` still enforces it as a last line of defence.
+- Rule 4 (at least one active IT) is checked before rule 3 (no self-change). So when the last active IT tries to deactivate or demote themselves, the error is `last_active_it` (409), not `self_change` (403). Every other path to zero active IT is already blocked by rules 1 and 3.
 
 ## Manual API checks
 
@@ -62,21 +62,27 @@ login m2 manager2@example.com password
 login it it1@example.com password
 ```
 
-| Check | Command | Expected |
-| --- | --- | --- |
-| Manager changes a report's role | `patch m user1 '{"role":"IT"}'` | 403 |
-| Manager edits own profile | `patch m manager1 '{"fullName":"X"}'` | 403 |
-| Manager edits a non-report | `patch m user5 '{"fullName":"X"}'` | 403 |
-| Manager edits an unknown id | `patch m nope '{"fullName":"X"}'` | 403 |
-| Unknown field | `patch m user1 '{"fullName":"X","isAdmin":true}'` | 400 |
-| IT deactivates self | `patch it it1 '{"status":"deactivated"}'` | 403 |
-| IT demotes self | `patch it it1 '{"role":"user"}'` | 403 |
-| Manager lists users | `list m` | only user1, user2, user3 |
-| Manager with no reports lists users | `list m2` | `[]` |
-| Deactivated user logs in | `login x user3@example.com password` | 401 |
-| Rule 5: deactivation applies on the next request | `patch it manager1 '{"status":"deactivated"}'` then `list m` | 200, then 401 |
+| Check                                            | Command                                                      | Expected                 |
+| ------------------------------------------------ | ------------------------------------------------------------ | ------------------------ |
+| Manager changes a report's role                  | `patch m user1 '{"role":"IT"}'`                              | 403                      |
+| Manager edits own profile                        | `patch m manager1 '{"fullName":"X"}'`                        | 403                      |
+| Manager edits a non-report                       | `patch m user5 '{"fullName":"X"}'`                           | 403                      |
+| Manager edits an unknown id                      | `patch m nope '{"fullName":"X"}'`                            | 403                      |
+| Unknown field                                    | `patch m user1 '{"fullName":"X","isAdmin":true}'`            | 400                      |
+| IT deactivates self                              | `patch it it1 '{"status":"deactivated"}'`                    | 403                      |
+| IT demotes self                                  | `patch it it1 '{"role":"user"}'`                             | 403                      |
+| Manager lists users                              | `list m`                                                     | only user1, user2, user3 |
+| Manager with no reports lists users              | `list m2`                                                    | `[]`                     |
+| Deactivated user logs in                         | `login x user3@example.com password`                         | 401                      |
+| Rule 5: deactivation applies on the next request | `patch it manager1 '{"status":"deactivated"}'` then `list m` | 200, then 401            |
 
-Rule 4 (at least one active IT) cannot be reached through curl: rules 1, 3 and 5 already stop the acting IT from removing the last active IT (see the Assumptions). `updateUser` still enforces it as a last line of defence.
+Rule 4 (at least one active IT), with both ITs active at the start:
+
+| Step                                              | Command                                   | Expected             |
+| ------------------------------------------------- | ----------------------------------------- | -------------------- |
+| IT deactivates self                               | `patch it it1 '{"status":"deactivated"}'` | 403 `self_change`    |
+| IT deactivates the other IT                       | `patch it it2 '{"status":"deactivated"}'` | 200                  |
+| IT deactivates self again, now the last active IT | `patch it it1 '{"status":"deactivated"}'` | 409 `last_active_it` |
 
 Data lives in memory, so restart the server to reset it after these checks.
 
@@ -87,13 +93,35 @@ login u user1@example.com password
 clients() { curl -s -b "$1.jar" -w ' -> %{http_code}\n' "$BASE/api/clients$2"; }
 ```
 
-| Check | Command | Expected |
-| --- | --- | --- |
-| Limit too large | `clients u '?limit=1e9'` | 400 |
-| Negative limit | `clients u '?limit=-1'` | 400 |
-| Non-numeric page | `clients u '?page=abc'` | 400 |
-| First page | `clients u '?page=1&limit=25'` | 25 items, `total` 1200 |
-| Past the last page | `clients u '?page=999'` | empty `items`, `total` 1200 |
-| IT lists clients | `clients it '?page=1'` | 403 |
-| No session | `curl -s $BASE/api/clients` | 401 |
-| One client / unknown id | `clients u /c-0002`, `clients u /c-9999` | 200 / 404 |
+| Check                   | Command                                  | Expected                    |
+| ----------------------- | ---------------------------------------- | --------------------------- |
+| Limit too large         | `clients u '?limit=1e9'`                 | 400                         |
+| Negative limit          | `clients u '?limit=-1'`                  | 400                         |
+| Non-numeric page        | `clients u '?page=abc'`                  | 400                         |
+| First page              | `clients u '?page=1&limit=25'`           | 25 items, `total` 1200      |
+| Past the last page      | `clients u '?page=999'`                  | empty `items`, `total` 1200 |
+| IT lists clients        | `clients it '?page=1'`                   | 403                         |
+| No session              | `curl -s $BASE/api/clients`              | 401                         |
+| One client / unknown id | `clients u /c-0002`, `clients u /c-9999` | 200 / 404                   |
+
+## Where permission decisions are made
+
+The only function that decides is `can()` in `src/lib/access.ts`.
+
+Everything else asks `can()`, or applies a rule that isn't about roles:
+
+| Where                                                     | What it enforces                                                                                                                                                   |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src/lib/auth.ts`, `resolveSession`                       | Rule 5: a deactivated user's session stops working on the next request.                                                                                            |
+| `src/lib/users.service.ts`                                | `listUsersFor`, `createUser` and the per-field check in `updateUser` call `can()`. `updateUser` also enforces rule 4 (last active IT) and rule 3 (no self-change). |
+| `src/lib/clients.service.ts`                              | `listClients` and `getClient` check `content:view`.                                                                                                                |
+| `src/lib/page-guards.ts`, `src/app/manage-users/page.tsx` | Page-level 403s.                                                                                                                                                   |
+
+`header.tsx`, `user-row.tsx`, `create-user-form.tsx` and `proxy.ts` decide nothing. They only hide or show UI, or check that a cookie exists; the API enforces everything again.
+
+## With another four hours
+
+1. **Automated tests.** Vitest unit tests for `can()`, `updateUser` (every rule and the order of checks) and `resolveSession`. A Playwright run of the acceptance scenarios in a real browser, including the one-page-per-request check and a deactivated user being sent back to `/login`. Today everything is verified by hand with curl.
+2. **Security basics.** Hash passwords with scrypt. Give sessions an expiry date and issue a fresh session id at login. Limit repeated failed logins. End a user's open sessions when they're deactivated, rather than only refusing them on lookup.
+3. **known gaps.** A manager can currently be assigned an IT user as a report. Demoting a manager leaves their reports pointing at someone who no longer manages anyone. "Edits only own reports" is an `if` on `'manager'` instead of a column in the permissions table. Editing `managerId` is out of scope today.
+4. **UI polish.** A confirmation before deactivating someone, readable error messages instead of codes like `self_change`, and basic styling.
