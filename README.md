@@ -79,3 +79,21 @@ login it it1@example.com password
 Rule 4 (at least one active IT) cannot be reached through curl: rules 1, 3 and 5 already stop the acting IT from removing the last active IT (see the Assumptions). `updateUser` still enforces it as a last line of defence.
 
 Data lives in memory, so restart the server to reset it after these checks.
+
+### Clients API
+
+```bash
+login u user1@example.com password
+clients() { curl -s -b "$1.jar" -w ' -> %{http_code}\n' "$BASE/api/clients$2"; }
+```
+
+| Check | Command | Expected |
+| --- | --- | --- |
+| Limit too large | `clients u '?limit=1e9'` | 400 |
+| Negative limit | `clients u '?limit=-1'` | 400 |
+| Non-numeric page | `clients u '?page=abc'` | 400 |
+| First page | `clients u '?page=1&limit=25'` | 25 items, `total` 1200 |
+| Past the last page | `clients u '?page=999'` | empty `items`, `total` 1200 |
+| IT lists clients | `clients it '?page=1'` | 403 |
+| No session | `curl -s $BASE/api/clients` | 401 |
+| One client / unknown id | `clients u /c-0002`, `clients u /c-9999` | 200 / 404 |
