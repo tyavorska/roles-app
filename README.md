@@ -29,3 +29,9 @@ All seed accounts use the password `password`.
 | user5    | user5@example.com      | user    | active, no manager      | unassigned: manager must not edit         |
 
 The store also generates 1,200 clients (`c-0001` to `c-1200`) with a seeded PRNG, so the data is the same on every restart.
+
+## Sessions: why not a JWT
+
+The app stores an opaque session id in an httpOnly cookie (`sid`) and looks it up in a server-side `Map` on every request. A JWT cannot be revoked before it expires, so deactivating a logged-in user would not take effect on their next request. With a server-side lookup it does (rule 5).
+
+Trade-off: the server is stateful, so it needs one long-lived Node process. Serverless deployments won't work.
