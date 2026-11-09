@@ -2,9 +2,10 @@ import 'server-only'
 import { cookies } from 'next/headers'
 import { db } from './db'
 import { HttpError } from './http'
+import { SESSION_COOKIE } from './session-cookie'
 import type { User } from './types'
 
-export const SESSION_COOKIE = 'sid'
+export { SESSION_COOKIE }
 
 export function resolveSession(sid: string | undefined): User | null {
   const userId = sid ? db.sessions.get(sid) : undefined
