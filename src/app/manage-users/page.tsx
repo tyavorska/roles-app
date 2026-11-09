@@ -3,6 +3,7 @@ import { Header } from '@/components/header'
 import { can, canManageUsers } from '@/lib/access'
 import { requirePageUser } from '@/lib/page-guards'
 import { listUsersFor } from '@/lib/users.service'
+import { CreateUserForm } from './create-user-form'
 import { UserRow } from './user-row'
 
 export const instant = false
@@ -16,6 +17,16 @@ export default async function ManageUsersPage() {
     <main>
       <Header user={user} />
       <h1>Users</h1>
+      {can(user, 'user:create') && (
+        <section>
+          <h2>Create user</h2>
+          <CreateUserForm
+            managers={users
+              .filter((u) => can(u, 'user:list-reports'))
+              .map(({ id, fullName }) => ({ id, fullName }))}
+          />
+        </section>
+      )}
       {users.length === 0 ? (
         <p>You have no direct reports yet.</p>
       ) : (
