@@ -46,3 +46,36 @@ Trade-off: the server is stateful, so it needs one long-lived Node process. Serv
 - Demoting a manager who has reports leaves their reports' `managerId` dangling (documented, not auto-cleaned).
 - IT lands on `/manage-users`; IT opening `/content` gets 403, not a redirect.
 - Rule 4 (at least one active IT) is unreachable through normal flows, because rules 1, 3 and 5 already protect the acting IT. `updateUser` still enforces it as a last line of defence.
+
+## Manual API checks
+
+Start the app with `npm run dev`, then define these helpers in a shell. Each one keeps its session in a `<name>.jar` cookie file:
+
+```bash
+BASE=http://localhost:3000
+login() { curl -s -c "$1.jar" -H 'content-type: application/json' -d "{\"email\":\"$2\",\"password\":\"$3\"}" -w ' -> %{http_code}\n' $BASE/api/auth/login; }
+patch() { curl -s -b "$1.jar" -X PATCH -H 'content-type: application/json' -d "$3" -w ' -> %{http_code}\n' $BASE/api/users/$2; }
+list()  { curl -s -b "$1.jar" -w ' -> %{http_code}\n' $BASE/api/users; }
+
+login m  manager1@example.com password
+login m2 manager2@example.com password
+login it it1@example.com password
+```
+
+| Check | Command | Expected |
+| --- | --- | --- |
+| Manager changes a report's role | `patch m user1 '{"role":"IT"}'` | 403 |
+| Manager edits own profile | `patch m manager1 '{"fullName":"X"}'` | 403 |
+| Manager edits a non-report | `patch m user5 '{"fullName":"X"}'` | 403 |
+| Manager edits an unknown id | `patch m nope '{"fullName":"X"}'` | 403 |
+| Unknown field | `patch m user1 '{"fullName":"X","isAdmin":true}'` | 400 |
+| IT deactivates self | `patch it it1 '{"status":"deactivated"}'` | 403 |
+| IT demotes self | `patch it it1 '{"role":"user"}'` | 403 |
+| Manager lists users | `list m` | only user1, user2, user3 |
+| Manager with no reports lists users | `list m2` | `[]` |
+| Deactivated user logs in | `login x user3@example.com password` | 401 |
+| Rule 5: deactivation applies on the next request | `patch it manager1 '{"status":"deactivated"}'` then `list m` | 200, then 401 |
+
+Rule 4 (at least one active IT) cannot be reached through curl: rules 1, 3 and 5 already stop the acting IT from removing the last active IT (see the Assumptions). `updateUser` still enforces it as a last line of defence.
+
+Data lives in memory, so restart the server to reset it after these checks.
